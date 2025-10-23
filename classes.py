@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
-
+from matplotlib.colors import LinearSegmentedColormap
+from sankeyflow import Sankey
 
 
 class ReachData:
@@ -42,12 +43,12 @@ class ReachData:
     def plot_reconstructed_xsecs_paper(self):
 
         hexcolors_U2021 = {
-            'CEFD': '#019d71',
-            'CST': '#fce900',
-            'DEP': '#f798b6',
-            'FSTCD': '#ff5441',
-            'TR': '#0b68f0',
-            'UST': '#ff9901',
+            'CEFD': '#019d71b3',
+            'CST': '#fce900b3',
+            'DEP': '#f798b6b3',
+            'FSTCD': '#fe0000b3',
+            'TR': '#0b68f0b3',
+            'UST': '#ff9901b3',
         }
         regs = [['TR'], ['CEFD'], ['DEP'], ['CST'], ['UST'], ['FSTCD'],]
         titles = [x[0] for x in regs]
@@ -211,3 +212,42 @@ class ReachData:
         plt.show()
 
         return fig
+
+    def plot_sankey_diagram(self):
+        n_conf = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['TR','CST'])].shape[0]
+        n_unconf = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CEFD','DEP','FSTCD','UST'])].shape[0]
+        n_vconn = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CEFD','DEP'])].shape[0]
+        n_vdisconn = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['FSTCD','UST'])].shape[0]
+        n_fstcd = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['FSTCD',])].shape[0]
+        n_ust = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['UST',])].shape[0]
+
+        flows = [
+            ('All data', 'Confined', n_conf, {'color': 'grey'}),
+            ('All data', 'Unconfined', n_unconf, {'color': 'lightgrey'}),
+            ('Unconfined', 'Vertically\nconnected', n_vconn, {'color': '#332288b3'}),
+            ('Unconfined', 'Vertically\ndisconnected', n_vdisconn, {'color': '#ee6576b3'}),
+            ('Vertically\ndisconnected', 'UST', n_ust, {'color': '#ff9901b3'}),
+            ('Vertically\ndisconnected', 'FSTCD', n_fstcd, {'color': '#fe0000b3'}),
+        ]
+
+        my_cmap = LinearSegmentedColormap.from_list('colores', ['silver'] + [c[3]['color'] for c in flows], N=len(flows)+1 )
+
+        s = Sankey(flows=flows, cmap=my_cmap, node_pad_y_min=0.15, node_opts=dict(label_format='{value:,.0f}',label_pos='left', label_opts=dict(fontsize=8)))
+        for nodes in s.nodes:
+            for node in nodes:
+                node.label = ''
+
+        fig,ax = plt.subplots(1,1,figsize=(5.5,0.9), layout='constrained')
+        s.draw(ax=ax)
+
+        ax.set_title("Number of data in each partition", fontsize=10,y=1.05)  # , x=0.5, y=-0.25
+        #ax.text(0.2, 0.98, 'Lateral confinement', fontsize=8, transform=ax.transAxes, ha='center')
+        #ax.text(0.5, 0.98, 'Vertical (dis)connection', fontsize=8, transform=ax.transAxes, ha='center')
+        #ax.text(0.8, 0.98, 'Sediment regimes', fontsize=8, transform=ax.transAxes, ha='center')
+        ax.text(-0.01, 1.3, '(a)', transform=ax.transAxes, ha='left', va='top', fontsize=8)
+        #ax.text(-0.7, 0.5, "Partitions of\ndata used\nin analyses", fontsize=8, va='center')
+
+        plt.show()
+
+        return fig
+
