@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+import pickle
 import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 from sankeyflow import Sankey
@@ -431,6 +432,24 @@ class RandomForestCVHandler:
         self.rf_kwargs = rf_kwargs
         self.cv_kwargs = cv_kwargs
     
+    def load_clf_cv(self, clf_path, cv_results_path):
+        with open(clf_path, 'rb') as f:
+            clf = pickle.load(f)
+        with open(cv_results_path, 'rb') as f:
+            cv_results = pickle.load(f)
+        return clf, cv_results
+
+    def permutation_importances(self, clf, X, y, pi_kwargs={'n_repeats': 100, 'n_jobs': 5}, sort_cols=True):
+
+        result = permutation_importance(clf, X, y, **pi_kwargs)
+        sorted_importances_idx = np.arange(X.columns.size)
+        if sort_cols:
+            sorted_importances_idx = result.importances_mean.argsort()
+
+        importances = pd.DataFrame(result.importances[sorted_importances_idx].T, columns=X.columns[sorted_importances_idx])
+
+        return importances
+    
     def rf_classify_with_cv(self, X, y, permute_entries=True, rng=None):
 
         if rng is None:
@@ -461,13 +480,10 @@ class RandomForestCVHandler:
 
         return clf, cv_results
     
-    def permutation_importances(self, clf, X, y, pi_kwargs={'n_repeats': 100, 'n_jobs': 5}, sort_cols=True):
-
-        result = permutation_importance(clf, X, y, **pi_kwargs)
-        sorted_importances_idx = np.arange(X.columns.size)
-        if sort_cols:
-            sorted_importances_idx = result.importances_mean.argsort()
-
-        importances = pd.DataFrame(result.importances[sorted_importances_idx].T, columns=X.columns[sorted_importances_idx])
-
-        return importances
+    def save_clf_cv(self, clf, cv_results, out_dir, suffix=''):
+        clf_name = 'clf' + str(suffix) + '.pkl'
+        cv_name = 'clf_cv' + str(suffix) + '.pkl'
+        with open(os.path.join(out_dir, clf_name), 'wb') as f:
+            pickle.dump(clf, f)
+        with open(os.path.join(out_dir, cv_name), 'wb') as f:
+            pickle.dump(cv_results, f)
