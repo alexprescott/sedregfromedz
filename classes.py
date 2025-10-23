@@ -1,12 +1,19 @@
 import matplotlib.colors as mc
 import matplotlib.lines as lines
+import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 from sankeyflow import Sankey
+from scipy.stats import kstest
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_validate, StratifiedKFold
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import balanced_accuracy_score
 
 
 class ReachData:
@@ -20,12 +27,36 @@ class ReachData:
         df.set_index('SRC_ID', inplace=True)
 
         print(f"Input data shape: {df.shape}")
+        print()
         if drop_unconfined_edz_nan:
             hand_cliff_reaches = df[(df['el_edap_scaled'].isnull()) & (df['Ph2SedReg'].isin(['CEFD','FSTCD','DEP','UST']))].index
+            print(f"Unconfined reaches without an extracted EDZ:")
+            print(df.loc[hand_cliff_reaches, ['Segment', 'Ph2SedReg']])
+            print()
             df = df.drop(index=hand_cliff_reaches)
             print(f"Shape after dropping unconfined NaNs: {df.shape}")
+            print(f'{df.Ph2SedReg.value_counts()}')
+            print()
         
         self.src_edz_data = df
+
+        self.hexcolors_U2021 = {
+            'CEFD': '#019d71b3',
+            'CST': '#fce900b3',
+            'DEP': '#f798b6b3',
+            'FSTCD': '#fe0000b3',
+            'TR': '#0b68f0b3',
+            'UST': '#ff9901b3',
+        }
+
+        self.hexcolors_groups = {
+            'Confined': '#808080',
+            'Unconfined': '#d3d3d3',
+            'Connected': '#332288',
+            'Disconnected': '#ee6576',
+            'FSTCD': '#fe0000b3',
+            'UST': '#ff9901b3',
+        }
     
     def load_reach_avg_profiles(self, dir):
         self.area_data = pd.read_csv(os.path.join(dir, 'area.csv'))
@@ -42,14 +73,6 @@ class ReachData:
 
     def plot_reconstructed_xsecs_paper(self):
 
-        hexcolors_U2021 = {
-            'CEFD': '#019d71b3',
-            'CST': '#fce900b3',
-            'DEP': '#f798b6b3',
-            'FSTCD': '#fe0000b3',
-            'TR': '#0b68f0b3',
-            'UST': '#ff9901b3',
-        }
         regs = [['TR'], ['CEFD'], ['DEP'], ['CST'], ['UST'], ['FSTCD'],]
         titles = [x[0] for x in regs]
         fig = plt.figure(figsize=(6.,2), constrained_layout=False, dpi=300)
@@ -103,7 +126,7 @@ class ReachData:
                 all_edzas[i] = tmp_meta["el_edap"]
                 all_edzes[i] = tmp_meta["el_edep"]
                 all_relwidths[i] = tmp_meta["valley_confinement"]
-                color = hexcolors_U2021[tmp_ph2sedreg]
+                color = self.hexcolors_U2021[tmp_ph2sedreg]
                 _ = ax.plot(width, section_el, lw=1, alpha=0.7, color=color,)
             x = np.median(all_widths, axis=0)
             y = np.median(all_els, axis=0)
@@ -222,12 +245,12 @@ class ReachData:
         n_ust = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['UST',])].shape[0]
 
         flows = [
-            ('All data', 'Confined', n_conf, {'color': 'grey'}),
-            ('All data', 'Unconfined', n_unconf, {'color': 'lightgrey'}),
-            ('Unconfined', 'Vertically\nconnected', n_vconn, {'color': '#332288b3'}),
-            ('Unconfined', 'Vertically\ndisconnected', n_vdisconn, {'color': '#ee6576b3'}),
-            ('Vertically\ndisconnected', 'UST', n_ust, {'color': '#ff9901b3'}),
-            ('Vertically\ndisconnected', 'FSTCD', n_fstcd, {'color': '#fe0000b3'}),
+            ('All data', 'Confined', n_conf, {'color': self.hexcolors_groups['Confined']}),
+            ('All data', 'Unconfined', n_unconf, {'color': self.hexcolors_groups['Unconfined']}),
+            ('Unconfined', 'Vertically\nconnected', n_vconn, {'color': self.hexcolors_groups['Connected']}),
+            ('Unconfined', 'Vertically\ndisconnected', n_vdisconn, {'color': self.hexcolors_groups['Disconnected']}),
+            ('Vertically\ndisconnected', 'UST', n_ust, {'color': self.hexcolors_groups['UST']}),
+            ('Vertically\ndisconnected', 'FSTCD', n_fstcd, {'color': self.hexcolors_groups['FSTCD']}),
         ]
 
         my_cmap = LinearSegmentedColormap.from_list('colores', ['silver'] + [c[3]['color'] for c in flows], N=len(flows)+1 )
@@ -251,3 +274,200 @@ class ReachData:
 
         return fig
 
+    def plot_boxplots_paper(self):
+
+        df = self.src_edz_data.copy()
+        edz_fields_map = {
+            'valley_confinement': 'EDZ relative width',
+            'el_edap_scaled': 'EDZ access stage',
+            'wtod_bf': 'Width-to-depth ratio',
+        }
+        geo_fields_map = {
+            #'VC': 'Valley confinement',
+            'ER': 'Entrenchment ratio',
+            'IR': 'Incision ratio',
+            'WtoD': 'Width-to-depth ratio'
+        #    'ER': 'Entrenchment ratio',
+        }
+        regs_map1 = {
+            'Confined': ['TR','CST'],
+            'Unconfined': ['CEFD','DEP','UST','FSTCD'],
+        }
+        regs_map2 = {
+            'Connected': ['CEFD','DEP',],
+            'Disconnected': ['UST','FSTCD'],
+        }
+        regs_map3 = {
+            'FSTCD': ['FSTCD',],
+            'UST': ['UST',],
+        }
+        porder1 = list(regs_map1.keys())
+        colors1 = [self.hexcolors_groups[x] for x in porder1]
+        porder2 = list(regs_map2.keys())
+        colors2 = [self.hexcolors_groups[x] for x in porder2]
+        porder3 = list(regs_map3.keys())
+        colors3 = [self.hexcolors_groups[x] for x in porder3]
+
+        edz_features = list(edz_fields_map.keys())
+        geo_features = list(geo_fields_map.keys())
+        for regk in regs_map1.keys():
+            regv = regs_map1[regk]
+            mask = df.Ph2SedReg.isin(regv)
+            df.loc[mask, 'group1'] = regk
+
+        for regk in regs_map2.keys():
+            regv = regs_map2[regk]
+            mask = df.Ph2SedReg.isin(regv)
+            df.loc[mask, 'group2'] = regk
+
+        for regk in regs_map3.keys():
+            regv = regs_map3[regk]
+            mask = df.Ph2SedReg.isin(regv)
+            df.loc[mask, 'group3'] = regk
+
+        ks_vc = kstest(df[(df.group1 == "Confined")]['VC'].to_numpy(), df[(df.group1 == "Unconfined")]['VC'])[1]
+        ks_ir = kstest(df[(df.group2 == "Connected")]['IR'].to_numpy(), df[(df.group2 == "Disconnected")]['IR'])[1]
+        ks_wd = kstest(df[(df.group3 == "FSTCD")]['WtoD'].to_numpy(), df[(df.group3 == "UST")]['WtoD'])[1]
+        ks_edzrw = kstest(df[(df.group1 == "Confined") & ~(df.el_edap_scaled.isnull())]['valley_confinement'].to_numpy(), df[(df.group1 == "Unconfined") & ~(df.el_edap_scaled.isnull())]['valley_confinement'])[1]
+        ks_edzas = kstest(df[(df.group2 == "Connected")]['el_edap_scaled'].to_numpy(), df[(df.group2 == "Disconnected")]['el_edap_scaled'])[1]
+        ks_wdbf = kstest(df[(df.group3 == "FSTCD")]['wtod_bf'].to_numpy(), df[(df.group3 == "UST")]['wtod_bf'])[1]
+        print(f"KS test p-value for VC: {ks_vc}")
+        print(f"KS test p-value for EDZ rel width: {ks_edzrw}")
+        print(f"KS test p-value for IR: {ks_ir}")
+        print(f"KS test p-value for EDZ access: {ks_edzas}")
+        print(f"KS test p-value for WtoD field: {ks_wd}")
+        print(f"KS test p-value for WtoD DEM: {ks_wdbf}")
+
+
+        def field_dem_comparison_plot(df, x, y, hue, ax, colors, legend=False, pval=None, letter=None):
+            sns.boxplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, fliersize=0, width=0.5)
+            sns.stripplot(df, x=x, y=y, size=2, color='k', alpha=0.5, ax=ax)
+            if pval is not None:
+                ax.text(0.975,0.05,f'p={pval:0.2g}', transform=ax.transAxes, ha='right', fontsize=7)
+            if letter is not None:
+                ax.text(0, 0.975, f'({letter})', transform=ax.transAxes, ha='left', va='top', fontsize=8)
+            ax.set_xlabel('')
+            ax.set_yticks([])
+            ax.grid(True)
+
+        fig,axs = plt.subplots(2,3, figsize=(6,2.5), layout='constrained', gridspec_kw={'wspace': 0.01, 'hspace': 0.01}) 
+        axs = axs.ravel()
+
+        edzk = edz_features[0]
+        iax = 0
+        ax = axs[iax]  # axs[0,1]
+        field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='b')
+        ax.set_xscale('log')
+        ax.set_xlim([0.5,3e2])
+        ax.set_xlabel('EDZ relative width')
+        ax.set_ylabel('DEM', fontsize=10)
+        ax.set_title('Lateral confinement')
+
+        edzk = edz_features[1]
+        iax+=1
+        ax = axs[iax]  # axs[1,1]
+        field_dem_comparison_plot(df.sort_values('group2'), x=edzk, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_edzas, letter='c')
+        ax.set_xlim([-0.1,4.5])
+        ax.set_xlabel('EDZ access stage')
+        ax.set_ylabel('')
+        ax.set_title('Vertical (dis)connection')
+
+        edzk = edz_features[2]
+        iax+=1
+        ax = axs[iax]  # axs[2,1]
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='d')
+        ax.set_xscale('log')
+        ax.set_xlim([8,300])
+        ax.set_xlabel('Width-to-depth ratio')
+        ax.set_ylabel('')
+        ax.set_title('Sediment regimes')
+
+        iax +=1
+        ax = axs[iax]  # axs[0,0]
+        geok = geo_features[0]
+        field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='e')
+        ax.set_xscale('log')
+        ax.set_xlim([0.5,3e2])
+        ax.set_xlabel('Entrenchment ratio') #'Confinement ratio')
+        ax.set_ylabel('Field', fontsize=10)
+
+        iax+=1
+        ax = axs[iax]  # axs[1,0]
+        geok = geo_features[1]
+        field_dem_comparison_plot(df.sort_values('group2'), x=geok, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_ir, letter='f')
+        ax.set_xlim([-0.1,4.5])
+        ax.set_xlabel('Incision ratio')
+        ax.set_ylabel('')
+
+        iax+=1
+        ax = axs[iax]  # axs[2,0]
+        geok = geo_features[2]
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='g')
+        ax.set_xscale('log')
+        ax.set_xlim([8,300])
+        ax.set_yticks([])
+        ax.set_xlabel('Width-to-depth ratio')
+        ax.set_ylabel('')
+
+        def add_legend(ax, colors, porder):
+            lhandles = [mpatches.Patch(color=colors[i], label=porder[i]) for i in range(2)]
+            ax.legend(handles=lhandles, loc="upper right", ncol=1, framealpha=0.8, bbox_to_anchor=(1,1), borderpad=0.2, alignment='right', markerfirst=False, prop={'family': 'monospace', 'size': 7})
+
+
+        for ax,colors,porder in zip(axs[3:], [colors1, colors2, list(reversed(colors3))], [porder1, porder2, list(reversed(porder3))]):
+            add_legend(ax, colors, porder)
+
+        fig.supylabel('Data source', fontsize=10)
+        fig.add_artist(mlines.Line2D([0.04, 1], [0.465, 0.465], lw=1, color='lightgrey'))
+
+        plt.show()
+
+        return fig
+    
+
+class RandomForestCVHandler:
+
+    def __init__(self, rf_kwargs={'n_estimators': 1000, 'oob_score': True}, cv_kwargs={'cv': StratifiedKFold(5), 'return_estimator': True, 'scoring': 'balanced_accuracy'}):
+        self.rf_kwargs = rf_kwargs
+        self.cv_kwargs = cv_kwargs
+    
+    def rf_classify_with_cv(self, X, y, permute_entries=True, rng=None):
+
+        if rng is None:
+            rng = np.random.default_rng()
+
+        clf = RandomForestClassifier(**self.rf_kwargs)
+
+        if permute_entries:
+            # shuffle X,y for cross validation
+            idx = rng.permutation(X.index)
+            cvX = X.reindex(idx)
+            cvy = y.reindex(idx)
+        else:
+            cvX = X
+            cvy = y
+
+        cv_results = cross_validate(clf, cvX, cvy.to_numpy().ravel(), **self.cv_kwargs)
+
+        print(f' Mean CV {self.cv_kwargs['scoring']}: {cv_results['test_score'].mean():0.3f}')
+        print(f' All CV {self.cv_kwargs['scoring']}: {cv_results['test_score']}')
+
+        # Do the final fit on all of the training data
+        clf.fit(X,y.to_numpy().ravel())
+        try:
+            print(f' Out of bag training score: {clf.oob_score_:0.3f}')
+        except:
+            pass
+
+        return clf, cv_results
+    
+    def permutation_importances(self, clf, X, y, pi_kwargs={'n_repeats': 100, 'n_jobs': 5}, sort_cols=True):
+
+        result = permutation_importance(clf, X, y, **pi_kwargs)
+        sorted_importances_idx = np.arange(X.columns.size)
+        if sort_cols:
+            sorted_importances_idx = result.importances_mean.argsort()
+
+        importances = pd.DataFrame(result.importances[sorted_importances_idx].T, columns=X.columns[sorted_importances_idx])
+
+        return importances
