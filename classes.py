@@ -1,3 +1,4 @@
+import logging
 import matplotlib.colors as mc
 import matplotlib.lines as lines
 import matplotlib.lines as mlines
@@ -8,6 +9,7 @@ import os
 import pandas as pd
 import pickle
 import seaborn as sns
+import teva
 from matplotlib.colors import LinearSegmentedColormap
 from sankeyflow import Sankey
 from scipy.stats import kstest
@@ -71,7 +73,6 @@ class ReachData:
     
     def attach_rfhandler(self, rf):
         self.rf = rf
-
 
     def load_reach_avg_profiles(self, dir):
         self.area_data = pd.read_csv(os.path.join(dir, 'area.csv'))
@@ -556,3 +557,153 @@ class RandomForestCVHandler:
             pickle.dump(clf, f)
         with open(os.path.join(out_dir, cv_name), 'wb') as f:
             pickle.dump(cv_results, f)
+
+
+
+class TEVAHandler:
+    
+    def __init__(self, reachdata=None):
+
+        if reachdata is not None:
+            self.reachdata = reachdata
+
+    def prep_input_data(self, output_dir, edzs_only=True, binned=False):
+
+        df = self.reachdata.src_edz_data.copy()
+        # strip whitespace from all column names
+        df.columns = df.columns.str.replace(' ', '')
+
+        # drop unneeded/repeated columns
+        drop_cols = ['TotDASqKm', 'Class', 'wbody', 's_order', 'invalid_geometry', 'streamorder','el_bathymetry','el_bathymetry_scaled','rh_bottom','w_bottom',]
+        df = df.drop(columns=drop_cols)
+
+        # drop unscaled versions of EDZ variables where scaled version exist
+        drop_cols = ['el_edap', 'el_min', 'el_edep', 'height', 'vol', 'w_edap', 'w_edep', ]
+        df = df.drop(columns=drop_cols)
+
+        # move classification variables to the front (so we can easily index the predictor variables in columnds )
+        df.insert(4, 'Ph2SedReg', df.pop('Ph2SedReg'))
+        df.insert(5, 'StreamType', df.pop('StreamType'))
+        df.insert(6, 'Bedform', df.pop('Bedform'))
+        # but we want slope so move it after them
+        df.insert(7, 'slope', df.pop('slope'))
+
+        # For dataset of EDZs ONLY, remove columns  that are from geomorphic data
+        if edzs_only:
+            df.drop(columns=df.columns[8:51], inplace=True)
+            out_suffix = '_edzsonly'
+        else:
+            out_suffix = ''
+
+        # Top-level: lateral confinement
+        # new field: lat_conn = 1, confined (TR, CST); lat_conn = 0, unconfined (CEFD, DEP, FSTCD, UST)
+        sub_df0 = df.copy()
+        sub_df0['lat_conf'] = 'unconfined'
+        sub_df0.loc[df.Ph2SedReg.isin(['TR','CST']), 'lat_conf'] = 'confined'
+        sub_df0.to_csv(output_dir + 'Dataset_lat_conf_TEVA' + out_suffix + '.csv', index=True)
+
+        # Mid-level: vertical (dis)connectivity
+        sub_df1 = df[df.Ph2SedReg.isin(['CEFD','DEP','FSTCD','UST'])].copy()
+        # new field: vert_conn = 1, connected (CEFD, DEP); vert_conn = 0, disconnected (FSTCD, UST)
+        sub_df1['vert_conn'] = 'connected'
+        sub_df1.loc[sub_df1.Ph2SedReg.isin(['FSTCD','UST']), 'vert_conn'] = 'disconnected'
+        sub_df1.to_csv(output_dir + 'Dataset_vert_conn_TEVA' + out_suffix + '.csv', index=True)
+
+        # Finest level: FSTCD and UST stream types
+        sub_df2 = df[df.Ph2SedReg.isin(['FSTCD','UST'])].copy()
+        # save to CSV
+        sub_df2.to_csv(output_dir + 'Dataset_FSTCD_UST_TEVA' + out_suffix + '.csv', index=True)
+
+        # Finest level: TR and CST stream types:
+        sub_df3 = df[df.Ph2SedReg.isin(['TR','CST'])].copy()
+        # save to CSV
+        sub_df3.to_csv(output_dir + 'Dataset_TR_CST_TEVA' + out_suffix + '.csv', index=True)
+
+        # Finest level: CEFD and DEP stream types:
+        sub_df4 = df[df.Ph2SedReg.isin(['CEFD','DEP'])].copy()
+        # save to CSV
+        sub_df4.to_csv(output_dir + 'Dataset_CEFD_DEP_TEVA' + out_suffix + '.csv', index=True)
+
+    def run_teva_model(self, data, classes, output_dir, out_suffix=''):
+
+        # output spreadsheets
+        cc_name = output_dir + 'ccs_all' + out_suffix + '.xlsx'
+        dnf_name = output_dir + 'dnfs_all' + out_suffix + '.xlsx'
+
+        # list of input featuers
+        input_features_list = data.iloc[:, 7:].columns.tolist()  # data.iloc[:, 7:].columns.tolist()
+
+        # reformat the data
+        observation_table = data[input_features_list].to_numpy()
+
+        # Other variables
+        n_observations = classes.shape[0]
+        n_features = len(input_features_list)
+        visualize = False
+        output_logging_level = logging.INFO
+
+        cc_max_order = 3  # n_features
+        dnf_max_order = 3
+        n_cc_gens = 500
+        n_dnf_gens = 100
+        use_sensitivity = True
+
+        # Algorithm
+        teva_alg = teva.TEVA(ccea_max_order                     =cc_max_order, # n_features,
+                            ccea_offspring_per_gen             =n_features,
+                            ccea_num_new_pop                   =n_features,
+                            ccea_total_generations             =n_cc_gens,
+                            ccea_n_age_layers                  =5,
+                            #  ccea_max_novel_order               =4,
+                            ccea_gen_per_growth                =3,
+                            ccea_layer_size                    =n_features,
+                            ccea_archive_offspring_per_gen     =25,
+                            ccea_p_crossover                   =0.5,
+                            ccea_p_wildcard                    =0.75,
+                            ccea_p_mutation                    =1 / n_features,
+                            ccea_tournament_size               =3,
+                            ccea_selective_mutation            =False,
+                            ccea_use_sensitivity               =use_sensitivity,
+                            ccea_sensitivity_threshold         =0,
+                            ccea_selection_exponent            =5,
+                            ccea_fitness_threshold             =1 / n_observations,
+                            ccea_archive_bin_size              =20,
+
+                            dnfea_total_generations            =n_dnf_gens,
+                            dnfea_gen_per_growth               =3,
+                            dnfea_n_age_layers                 =5,
+                            dnfea_offspring_per_gen            =20,
+                            dnfea_p_crossover                  =0.5,
+                            dnfea_p_targeted_mutation          =0.2,
+                            dnfea_p_targeted_crossover         =0.25,
+                            dnfea_tournament_size              =3,
+                            dnfea_p_union                      =0.5,
+                            dnfea_p_intersection               =0.0,
+                            dnfea_selection_exponent           =5,
+                            dnfea_max_order                    =dnf_max_order,
+                            dnfea_layer_size                   =20)
+                            # dnfea_max_ccs=4)
+
+        # Run the algorithm for the data set
+        unique_classes = teva_alg.fit(observation_table=observation_table,
+                                    classifications=classes)
+
+        teva_alg.run_all_targets(logfile_logging_level=logging.INFO,
+                                output_logging_level=output_logging_level,
+                                visualize=visualize)
+
+
+        teva_alg.export(cc_name, dnf_name)
+        # TEVA export doesn't preserve feature names in the CC output file, for some reason
+        # each feature column is labelled like "feature_0"
+        # manually resave excel files with the correct feature names
+        # they start in column 14
+
+        df_dict = pd.read_excel(cc_name, sheet_name=None)  # sheet_name=None returns a dict with the sheet names as keys and the pandas dataframes as values
+        for sheet in df_dict.keys():
+            df_dict[sheet].columns = df_dict[sheet].columns[:14].to_list() + input_features_list  # replace column names
+            df_dict[sheet].drop(columns=df_dict[sheet].columns[0], inplace=True)
+
+        with pd.ExcelWriter(cc_name) as writer:
+            for sheet in df_dict.keys():
+                df_dict[sheet].to_excel(writer, sheet_name=sheet)
