@@ -16,6 +16,8 @@ from sklearn.model_selection import cross_validate, StratifiedKFold
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import balanced_accuracy_score
 
+plt.rcParams.update({'font.size': 8}) 
+
 
 class ReachData:
 
@@ -25,7 +27,11 @@ class ReachData:
         df = df1.merge(df2, on='SRC_ID', suffixes=(None, '_y')) # note that columns length, slope, and wbody are duplicated in both dataframes, hence we specify None and _y suffixes
         df = df.drop(columns=df.columns[df.columns.str.contains('_y')])  # the duplicated fields are exactly equal, so we drop the _y columns
         df['SRC_ID'] = df['SRC_ID'].astype(np.int64).astype(str)  # avoids some key issues later
+        df1['SRC_ID'] = df1['SRC_ID'].astype(np.int64).astype(str)
+        df2['SRC_ID'] = df2['SRC_ID'].astype(np.int64).astype(str)
         df.set_index('SRC_ID', inplace=True)
+        df1.set_index('SRC_ID', inplace=True)
+        df2.set_index('SRC_ID', inplace=True)
 
         print(f"Input data shape: {df.shape}")
         print()
@@ -34,11 +40,15 @@ class ReachData:
             print(f"Unconfined reaches without an extracted EDZ:")
             print(df.loc[hand_cliff_reaches, ['Segment', 'Ph2SedReg']])
             print()
+            df1 = df1.drop(index=hand_cliff_reaches)
+            df2 = df2.drop(index=hand_cliff_reaches)
             df = df.drop(index=hand_cliff_reaches)
             print(f"Shape after dropping unconfined NaNs: {df.shape}")
             print(f'{df.Ph2SedReg.value_counts()}')
             print()
         
+        self.geomorphic_data = df1
+        self.edz_data = df2
         self.src_edz_data = df
 
         self.hexcolors_U2021 = {
@@ -59,6 +69,10 @@ class ReachData:
             'UST': '#ff9901b3',
         }
     
+    def attach_rfhandler(self, rf):
+        self.rf = rf
+
+
     def load_reach_avg_profiles(self, dir):
         self.area_data = pd.read_csv(os.path.join(dir, 'area.csv'))
         self.el_data = pd.read_csv(os.path.join(dir, 'el.csv'))
@@ -279,13 +293,13 @@ class ReachData:
 
         df = self.src_edz_data.copy()
         edz_fields_map = {
-            'valley_confinement': 'EDZ relative width',
+            #'valley_confinement': 'EDZ relative width',
+            'w_edep_scaled': 'Scaled width at the EDZ exit',
             'el_edap_scaled': 'EDZ access stage',
             'wtod_bf': 'Width-to-depth ratio',
         }
         geo_fields_map = {
-            #'VC': 'Valley confinement',
-            'ER': 'Entrenchment ratio',
+            'VC': 'Confinement ratio',
             'IR': 'Incision ratio',
             'WtoD': 'Width-to-depth ratio'
         #    'ER': 'Entrenchment ratio',
@@ -360,7 +374,7 @@ class ReachData:
         field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='b')
         ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
-        ax.set_xlabel('EDZ relative width')
+        ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('DEM', fontsize=10)
         ax.set_title('Lateral confinement')
 
@@ -369,7 +383,7 @@ class ReachData:
         ax = axs[iax]  # axs[1,1]
         field_dem_comparison_plot(df.sort_values('group2'), x=edzk, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_edzas, letter='c')
         ax.set_xlim([-0.1,4.5])
-        ax.set_xlabel('EDZ access stage')
+        ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
         ax.set_title('Vertical (dis)connection')
 
@@ -379,7 +393,7 @@ class ReachData:
         field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='d')
         ax.set_xscale('log')
         ax.set_xlim([8,300])
-        ax.set_xlabel('Width-to-depth ratio')
+        ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
         ax.set_title('Sediment regimes')
 
@@ -389,7 +403,7 @@ class ReachData:
         field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='e')
         ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
-        ax.set_xlabel('Entrenchment ratio') #'Confinement ratio')
+        ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('Field', fontsize=10)
 
         iax+=1
@@ -397,7 +411,7 @@ class ReachData:
         geok = geo_features[1]
         field_dem_comparison_plot(df.sort_values('group2'), x=geok, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_ir, letter='f')
         ax.set_xlim([-0.1,4.5])
-        ax.set_xlabel('Incision ratio')
+        ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('')
 
         iax+=1
@@ -407,7 +421,7 @@ class ReachData:
         ax.set_xscale('log')
         ax.set_xlim([8,300])
         ax.set_yticks([])
-        ax.set_xlabel('Width-to-depth ratio')
+        ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('')
 
         def add_legend(ax, colors, porder):
@@ -425,6 +439,55 @@ class ReachData:
 
         return fig
     
+    def repeat_cv_compare(self, class1, class2, cols_teva, save_fpath, n_iter=10, rng=None, prints=True):
+
+        if rng is None:
+            rng = np.random.default_rng()
+        idx = self.src_edz_data.Ph2SedReg.isin(class1 + class2)
+        y = self.src_edz_data[idx].Ph2SedReg.isin(class1).astype(np.int8)
+
+        try:
+            cols_teva.remove('Ph2SedReg')
+        except:
+            pass
+        cols_teva.insert(0, 'Ph2SedReg')
+        cols_all = self.edz_data.columns.insert(0, 'Ph2SedReg')
+        X_all = self.src_edz_data.loc[idx, cols_all]
+        X_teva = self.src_edz_data.loc[idx, cols_teva]
+
+        bas_all = []
+        bas_teva = []
+        for n in range(n_iter):
+            p_idx = rng.permutation(X_all.index)  # X_all and X_teva share the same index
+            
+            clf_all, cv_res_all = self.rf.rf_classify_with_cv(X_all.iloc[:,1:], y, permute_idx=p_idx, do_fit=False, prints=False)
+            m_all = np.mean(cv_res_all['test_score'])
+            bas_all.append(m_all)
+
+            clf_teva, cv_res_teva = self.rf.rf_classify_with_cv(X_teva.iloc[:,1:], y, permute_idx=p_idx, do_fit=False, prints=False)
+            m_teva = np.mean(cv_res_teva['test_score'])
+            bas_teva.append(m_teva)
+
+            if prints:
+                print(f'Loop {n+1} of {n_iter}: all columns CV mean {m_all:.3f}, teva columns CV mean {m_teva:.3f}')
+
+        if prints:
+            print('Summary using all columns:')
+            print(f'Mean of cross-validation means: {np.mean(bas_all)}')
+            print(f'Standard deviation: {np.std(bas_all)}')
+            print(f'Range: {np.min(bas_all)}, {np.max(bas_all)}')
+            print()
+
+            print('Summary using TEVA-selected columns')
+            print(f'Mean of cross-validation means: {np.mean(bas_teva)}')
+            print(f'Standard deviation: {np.std(bas_teva)}')
+            print(f'Range: {np.min(bas_teva)}, {np.max(bas_teva)}')
+            print()
+
+        df = pd.DataFrame([bas_all, bas_teva], index=['All features', 'TEVA features']).T
+        df.to_csv(save_fpath)
+
+
 
 class RandomForestCVHandler:
 
@@ -450,14 +513,17 @@ class RandomForestCVHandler:
 
         return importances
     
-    def rf_classify_with_cv(self, X, y, permute_entries=True, rng=None):
+    def rf_classify_with_cv(self, X, y, permute_idx=None, permute_entries=True, rng=None, do_fit=True, prints=True):
 
         if rng is None:
             rng = np.random.default_rng()
 
         clf = RandomForestClassifier(**self.rf_kwargs)
 
-        if permute_entries:
+        if permute_idx is not None:
+            cvX = X.reindex(permute_idx)
+            cvy = y.reindex(permute_idx)
+        elif permute_entries:
             # shuffle X,y for cross validation
             idx = rng.permutation(X.index)
             cvX = X.reindex(idx)
@@ -468,15 +534,18 @@ class RandomForestCVHandler:
 
         cv_results = cross_validate(clf, cvX, cvy.to_numpy().ravel(), **self.cv_kwargs)
 
-        print(f' Mean CV {self.cv_kwargs['scoring']}: {cv_results['test_score'].mean():0.3f}')
-        print(f' All CV {self.cv_kwargs['scoring']}: {cv_results['test_score']}')
+        if prints:
+            print(f' Mean CV {self.cv_kwargs['scoring']}: {cv_results['test_score'].mean():0.3f}')
+            print(f' All CV {self.cv_kwargs['scoring']}: {cv_results['test_score']}')
 
         # Do the final fit on all of the training data
-        clf.fit(X,y.to_numpy().ravel())
-        try:
-            print(f' Out of bag training score: {clf.oob_score_:0.3f}')
-        except:
-            pass
+        if do_fit:
+            clf.fit(X,y.to_numpy().ravel())
+            if prints:
+                try:
+                    print(f' Out of bag training score: {clf.oob_score_:0.3f}')
+                except:
+                    pass
 
         return clf, cv_results
     
