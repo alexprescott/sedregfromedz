@@ -9,6 +9,7 @@ import os
 import pandas as pd
 import pickle
 import seaborn as sns
+import textwrap
 import teva
 from matplotlib.colors import LinearSegmentedColormap
 from sankeyflow import Sankey
@@ -65,10 +66,8 @@ class ReachData:
         self.hexcolors_groups = {
             'Confined': '#808080',
             'Unconfined': '#d3d3d3',
-            'Connected': '#332288',
-            'Disconnected': '#ee6576',
-            'FSTCD': '#fe0000b3',
-            'UST': '#ff9901b3',
+            'Connected': '#00ff78b3',
+            'Disconnected': '#FF0087b3',
         }
     
     def attach_rfhandler(self, rf):
@@ -91,6 +90,7 @@ class ReachData:
 
         regs = [['TR'], ['CEFD'], ['DEP'], ['CST'], ['UST'], ['FSTCD'],]
         titles = [x[0] for x in regs]
+        n_elems = [(self.src_edz_data.Ph2SedReg.isin(x) > 0).sum() for x in regs]
         fig = plt.figure(figsize=(6.,2), constrained_layout=False, dpi=300)
         fig_widths = [5, 5, 5, 1]
         fig_heights = [1, 3, 3]
@@ -106,7 +106,7 @@ class ReachData:
         axs.append(fig.add_subplot(gs[:, 3]))
 
         reach_data = self.src_edz_data
-        for reg,ax,title in zip(regs,axs[1:-1],titles):
+        for reg,ax,title,n in zip(regs,axs[1:-1],titles,n_elems):
             valid_reaches = set(reach_data.index[reach_data.Ph2SedReg.isin(reg)])
             valid_reaches = sorted(valid_reaches)
             all_els = np.zeros((len(valid_reaches), 2*self.el_scaled_data.shape[0]))
@@ -144,8 +144,8 @@ class ReachData:
                 all_relwidths[i] = tmp_meta["valley_confinement"]
                 color = self.hexcolors_U2021[tmp_ph2sedreg]
                 _ = ax.plot(width, section_el, lw=1, alpha=0.7, color=color,)
-            x = np.median(all_widths, axis=0)
-            y = np.median(all_els, axis=0)
+            x = np.mean(all_widths, axis=0)
+            y = np.mean(all_els, axis=0)
             _ = ax.plot(x, y, 'k-', lw=1, zorder=1000)
             idx_l = np.argmin(np.abs(y[:len(y)//2]-1.0))
             idx_r = (len(y)//2) + np.argmin(np.abs(y[len(y)//2:]-1.0))
@@ -156,7 +156,8 @@ class ReachData:
             #ax.set_ylabel(r'Scaled stage (m m$^{-1}$)', fontsize=8)
             ax.hlines(1.0, x[idx_l], x[idx_r], colors='dodgerblue', lw=1.0,)
             ax.add_patch(mpatches.Polygon([[0,1.03],[-2,1.5],[2,1.5]], closed=True, facecolor='dodgerblue', edgecolor='k', lw=0.5))
-            ax.text(-49.5, 5.9, title, fontsize=10, weight='bold', ha='left', va='top', bbox=dict(boxstyle='square,pad=0', fc='white', ec='none', alpha=0.8), zorder=1001)
+            text = ax.text(-49.5, 5.9, title, fontsize=10, weight='bold', ha='left', va='top', bbox=dict(boxstyle='square,pad=0', fc='white', ec='none', alpha=0.8), zorder=1001)
+            text = ax.annotate(f' (n={n})', xycoords=text, xy=(1,0), fontsize=10, ha='left', va='bottom', bbox=dict(boxstyle='square,pad=0', fc='white', ec='none', alpha=0.8), zorder=1002)
             #ax.axhline(1.0, ls=':', color='k')
             ax.set_xlim([-50,50]) #ax.set_xlim([-0.5,0.5])
             ax.set_ylim([0.,6.])
@@ -168,7 +169,7 @@ class ReachData:
 
         # add text and arrows with gradients; https://stackoverflow.com/questions/72130591/fill-polygon-with-vertical-gradient
         cmap_wk = mc.LinearSegmentedColormap.from_list('white_to_black', ['white', 'black'])
-        cmap_bp = mc.LinearSegmentedColormap.from_list('blue_to_pink', ['#332288', '#ee6576'])
+        cmap_bp = mc.LinearSegmentedColormap.from_list('blue_to_pink', [self.hexcolors_groups['Connected'], self.hexcolors_groups['Disconnected']])
         grad = np.atleast_2d(np.linspace(0,1,256))
 
         # top axis
@@ -189,7 +190,7 @@ class ReachData:
 
         # right-most axis
         ax = axs[-1]
-        ax.text(0.25, -0.05, "Vertical disconnection", fontsize=8, va="bottom", rotation=90)
+        ax.text(0.25, -0.05, "Vertical disconnectivity", fontsize=8, va="bottom", rotation=90)
         img = ax.imshow(grad.T, extent=[-0.5, 0.5, -0.1, 0.8], interpolation='nearest', aspect='auto', cmap=cmap_bp)
         arrow = mpatches.FancyArrowPatch((0.0,0.8), (0.0,-0.1), mutation_scale=20, clip_on=False, facecolor='none', edgecolor='none')
         ax.add_patch(arrow)
@@ -226,7 +227,7 @@ class ReachData:
         #handles.append(mpatches.Patch(facecolor='none', edgecolor='#ee6576', ls='--', lw=1.5,))
         #labels.append("Vertically disconnected")
         handles.append(lines.Line2D([0],[0], color='black',))
-        labels.append('Median cross section')
+        labels.append('Mean cross section')
         class BankfullMarker:
             pass
         class BankfullMarkerHandler:
@@ -257,16 +258,24 @@ class ReachData:
         n_unconf = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CEFD','DEP','FSTCD','UST'])].shape[0]
         n_vconn = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CEFD','DEP'])].shape[0]
         n_vdisconn = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['FSTCD','UST'])].shape[0]
+        n_cst = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CST',])].shape[0]
+        n_tr = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['TR',])].shape[0]
+        n_cefd = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['CEFD',])].shape[0]
+        n_dep = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['DEP',])].shape[0]
         n_fstcd = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['FSTCD',])].shape[0]
         n_ust = self.src_edz_data[self.src_edz_data.Ph2SedReg.isin(['UST',])].shape[0]
 
         flows = [
             ('All data', 'Confined', n_conf, {'color': self.hexcolors_groups['Confined']}),
             ('All data', 'Unconfined', n_unconf, {'color': self.hexcolors_groups['Unconfined']}),
+            ('Confined', 'CST', n_cst, {'color': self.hexcolors_U2021['CST']}),
+            ('Confined', 'TR', n_tr, {'color': self.hexcolors_U2021['TR']}),
             ('Unconfined', 'Vertically\nconnected', n_vconn, {'color': self.hexcolors_groups['Connected']}),
             ('Unconfined', 'Vertically\ndisconnected', n_vdisconn, {'color': self.hexcolors_groups['Disconnected']}),
-            ('Vertically\ndisconnected', 'UST', n_ust, {'color': self.hexcolors_groups['UST']}),
-            ('Vertically\ndisconnected', 'FSTCD', n_fstcd, {'color': self.hexcolors_groups['FSTCD']}),
+            ('Vertically\nconnected', 'CEFD', n_cefd, {'color': self.hexcolors_U2021['CEFD']}),
+            ('Vertically\nconnected', 'DEP', n_dep, {'color': self.hexcolors_U2021['DEP']}),
+            ('Vertically\ndisconnected', 'UST', n_ust, {'color': self.hexcolors_U2021['UST']}),
+            ('Vertically\ndisconnected', 'FSTCD', n_fstcd, {'color': self.hexcolors_U2021['FSTCD']}),
         ]
 
         my_cmap = LinearSegmentedColormap.from_list('colores', ['silver'] + [c[3]['color'] for c in flows], N=len(flows)+1 )
@@ -295,14 +304,15 @@ class ReachData:
         df = self.src_edz_data.copy()
         edz_fields_map = {
             #'valley_confinement': 'EDZ relative width',
-            'w_edep_scaled': 'Scaled width at the EDZ exit',
+            #'w_edep_scaled': 'Scaled width at the EDZ exit',
+            'w_4timesbf_to_w_bf': 'Widths ratio, 4xBF to BF',
             'el_edap_scaled': 'EDZ access stage',
-            'wtod_bf': 'Width-to-depth ratio',
+            'wtod_bf': 'BF width-to-depth ratio',
         }
         geo_fields_map = {
             'VC': 'Confinement ratio',
             'IR': 'Incision ratio',
-            'WtoD': 'Width-to-depth ratio'
+            'WtoD': 'BF width-to-depth ratio'
         #    'ER': 'Entrenchment ratio',
         }
         regs_map1 = {
@@ -317,12 +327,13 @@ class ReachData:
             'FSTCD': ['FSTCD',],
             'UST': ['UST',],
         }
+        all_colors = self.hexcolors_groups | self.hexcolors_U2021
         porder1 = list(regs_map1.keys())
-        colors1 = [self.hexcolors_groups[x] for x in porder1]
+        colors1 = [all_colors[x] for x in porder1]
         porder2 = list(regs_map2.keys())
-        colors2 = [self.hexcolors_groups[x] for x in porder2]
+        colors2 = [all_colors[x] for x in porder2]
         porder3 = list(regs_map3.keys())
-        colors3 = [self.hexcolors_groups[x] for x in porder3]
+        colors3 = [all_colors[x] for x in porder3]
 
         edz_features = list(edz_fields_map.keys())
         geo_features = list(geo_fields_map.keys())
@@ -341,18 +352,18 @@ class ReachData:
             mask = df.Ph2SedReg.isin(regv)
             df.loc[mask, 'group3'] = regk
 
-        ks_vc = kstest(df[(df.group1 == "Confined")]['VC'].to_numpy(), df[(df.group1 == "Unconfined")]['VC'])[1]
-        ks_ir = kstest(df[(df.group2 == "Connected")]['IR'].to_numpy(), df[(df.group2 == "Disconnected")]['IR'])[1]
-        ks_wd = kstest(df[(df.group3 == "FSTCD")]['WtoD'].to_numpy(), df[(df.group3 == "UST")]['WtoD'])[1]
-        ks_edzrw = kstest(df[(df.group1 == "Confined") & ~(df.el_edap_scaled.isnull())]['valley_confinement'].to_numpy(), df[(df.group1 == "Unconfined") & ~(df.el_edap_scaled.isnull())]['valley_confinement'])[1]
-        ks_edzas = kstest(df[(df.group2 == "Connected")]['el_edap_scaled'].to_numpy(), df[(df.group2 == "Disconnected")]['el_edap_scaled'])[1]
-        ks_wdbf = kstest(df[(df.group3 == "FSTCD")]['wtod_bf'].to_numpy(), df[(df.group3 == "UST")]['wtod_bf'])[1]
-        print(f"KS test p-value for VC: {ks_vc}")
-        print(f"KS test p-value for EDZ rel width: {ks_edzrw}")
-        print(f"KS test p-value for IR: {ks_ir}")
-        print(f"KS test p-value for EDZ access: {ks_edzas}")
-        print(f"KS test p-value for WtoD field: {ks_wd}")
-        print(f"KS test p-value for WtoD DEM: {ks_wdbf}")
+        ks_vc = kstest(df[(df.group1 == "Confined")][geo_features[0]].to_numpy(), df[(df.group1 == "Unconfined")][geo_features[0]])[1]
+        ks_ir = kstest(df[(df.group2 == "Connected")][geo_features[1]].to_numpy(), df[(df.group2 == "Disconnected")][geo_features[1]])[1]
+        ks_wd = kstest(df[(df.group3 == "FSTCD")][geo_features[2]].to_numpy(), df[(df.group3 == "UST")][geo_features[2]])[1]
+        ks_edzrw = kstest(df[(df.group1 == "Confined") & ~(df.el_edap_scaled.isnull())][edz_features[0]].to_numpy(), df[(df.group1 == "Unconfined") & ~(df.el_edap_scaled.isnull())][edz_features[0]])[1]
+        ks_edzas = kstest(df[(df.group2 == "Connected")][edz_features[1]].to_numpy(), df[(df.group2 == "Disconnected")][edz_features[1]])[1]
+        ks_wdbf = kstest(df[(df.group3 == "FSTCD")][edz_features[2]].to_numpy(), df[(df.group3 == "UST")][edz_features[2]])[1]
+        print(f"KS test p-value for field {geo_features[0]}: {ks_vc}")
+        print(f"KS test p-value for DEM {edz_features[0]}: {ks_edzrw}")
+        print(f"KS test p-value for field {geo_features[1]}: {ks_ir}")
+        print(f"KS test p-value for DEM {edz_features[1]}: {ks_edzas}")
+        print(f"KS test p-value for field {geo_features[2]}: {ks_wd}")
+        print(f"KS test p-value for DEM {edz_features[2]}: {ks_wdbf}")
 
 
         def field_dem_comparison_plot(df, x, y, hue, ax, colors, legend=False, pval=None, letter=None):
@@ -372,7 +383,7 @@ class ReachData:
         edzk = edz_features[0]
         iax = 0
         ax = axs[iax]  # axs[0,1]
-        field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='b')
+        field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='a')
         ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
         ax.set_xlabel(edz_fields_map[edzk])
@@ -382,26 +393,26 @@ class ReachData:
         edzk = edz_features[1]
         iax+=1
         ax = axs[iax]  # axs[1,1]
-        field_dem_comparison_plot(df.sort_values('group2'), x=edzk, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_edzas, letter='c')
+        field_dem_comparison_plot(df.sort_values('group2'), x=edzk, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_edzas, letter='b')
         ax.set_xlim([-0.1,4.5])
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
-        ax.set_title('Vertical (dis)connection')
+        ax.set_title('Vertical (dis)connectivity')
 
         edzk = edz_features[2]
         iax+=1
         ax = axs[iax]  # axs[2,1]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='d')
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='c')
         ax.set_xscale('log')
         ax.set_xlim([8,300])
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
-        ax.set_title('Sediment regimes')
+        ax.set_title('FSTCD vs. UST')
 
         iax +=1
         ax = axs[iax]  # axs[0,0]
         geok = geo_features[0]
-        field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='e')
+        field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='d')
         ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
         ax.set_xlabel(geo_fields_map[geok])
@@ -410,7 +421,7 @@ class ReachData:
         iax+=1
         ax = axs[iax]  # axs[1,0]
         geok = geo_features[1]
-        field_dem_comparison_plot(df.sort_values('group2'), x=geok, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_ir, letter='f')
+        field_dem_comparison_plot(df.sort_values('group2'), x=geok, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_ir, letter='e')
         ax.set_xlim([-0.1,4.5])
         ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('')
@@ -418,7 +429,7 @@ class ReachData:
         iax+=1
         ax = axs[iax]  # axs[2,0]
         geok = geo_features[2]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='g')
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='f')
         ax.set_xscale('log')
         ax.set_xlim([8,300])
         ax.set_yticks([])
@@ -440,6 +451,28 @@ class ReachData:
 
         return fig
     
+    def plot_boxplots_supplement(self, edz_features_dict, class1, class2, label1, label2, ax, colors=None):
+        edz_features = list(edz_features_dict.keys())
+        chosen_regs = class1 + class2
+        mask = self.src_edz_data['Ph2SedReg'].isin(chosen_regs)
+        X = self.src_edz_data[edz_features].loc[mask]
+        y = self.src_edz_data.Ph2SedReg.loc[mask].isin(class1)
+        X['Classes'] = y.map({True: label1, False: label2})
+        a = pd.melt(X, id_vars='Classes').sort_values('Classes', key=lambda s: s.apply([label1, label2].index), ignore_index=True)
+        sns.boxplot(a, x='variable', y='value', hue='Classes', ax=ax, palette=colors)
+        ax.get_legend().set_title('')
+        labels = []
+        for label in ax.get_xticklabels():
+            text = edz_features_dict[label.get_text()]
+            labels.append(textwrap.fill(text, width=10, break_long_words=False))
+        ax.set_xticks(ax.get_xticks(), labels, fontsize=8, rotation=90)
+        #ax.set_xticks(ax.get_xticks(), [edz_features_dict[x.get_text()] for x in ax.get_xticklabels()], rotation=45, ha='right', fontsize=7)
+        ax.set_xlabel('')
+        ax.set_ylabel('Value')
+
+        return ax
+
+
     def repeat_cv_compare(self, class1, class2, cols_teva, save_fpath, n_iter=10, rng=None, prints=True):
 
         if rng is None:
@@ -488,6 +521,57 @@ class ReachData:
         df = pd.DataFrame([bas_all, bas_teva], index=['All features', 'TEVA features']).T
         df.to_csv(save_fpath)
 
+    def repeat_cv_compare_alldata(self, cols_teva, save_fpath, n_iter=10, rng=None, prints=True):
+
+        if rng is None:
+            rng = np.random.default_rng()
+        
+        labs = self.src_edz_data.Ph2SedReg.unique()
+        nums = np.arange(len(labs))
+        labs_nums_dict = dict(zip(labs, nums))
+        y = self.src_edz_data.Ph2SedReg.copy()
+        y = y.map(labs_nums_dict).astype(np.int8)
+
+        try:
+            cols_teva.remove('Ph2SedReg')
+        except:
+            pass
+        cols_teva.insert(0, 'Ph2SedReg')
+        cols_all = self.edz_data.columns.insert(0, 'Ph2SedReg')
+        X_all = self.src_edz_data[cols_all]
+        X_teva = self.src_edz_data[cols_teva]
+
+        bas_all = []
+        bas_teva = []
+        for n in range(n_iter):
+            p_idx = rng.permutation(X_all.index)  # X_all and X_teva share the same index
+            
+            clf_all, cv_res_all = self.rf.rf_classify_with_cv(X_all.iloc[:,1:], y, permute_idx=p_idx, do_fit=False, prints=False)
+            m_all = np.mean(cv_res_all['test_score'])
+            bas_all.append(m_all)
+
+            clf_teva, cv_res_teva = self.rf.rf_classify_with_cv(X_teva.iloc[:,1:], y, permute_idx=p_idx, do_fit=False, prints=False)
+            m_teva = np.mean(cv_res_teva['test_score'])
+            bas_teva.append(m_teva)
+
+            if prints:
+                print(f'Loop {n+1} of {n_iter}: all columns CV mean {m_all:.3f}, teva columns CV mean {m_teva:.3f}')
+
+        if prints:
+            print('Summary using all columns:')
+            print(f'Mean of cross-validation means: {np.mean(bas_all)}')
+            print(f'Standard deviation: {np.std(bas_all)}')
+            print(f'Range: {np.min(bas_all)}, {np.max(bas_all)}')
+            print()
+
+            print('Summary using TEVA-selected columns')
+            print(f'Mean of cross-validation means: {np.mean(bas_teva)}')
+            print(f'Standard deviation: {np.std(bas_teva)}')
+            print(f'Range: {np.min(bas_teva)}, {np.max(bas_teva)}')
+            print()
+
+        df = pd.DataFrame([bas_all, bas_teva], index=['All features', 'TEVA features']).T
+        df.to_csv(save_fpath)
 
 
 class RandomForestCVHandler:
@@ -503,7 +587,7 @@ class RandomForestCVHandler:
             cv_results = pickle.load(f)
         return clf, cv_results
 
-    def permutation_importances(self, clf, X, y, pi_kwargs={'n_repeats': 100, 'n_jobs': 5}, sort_cols=True):
+    def permutation_importances(self, clf, X, y, pi_kwargs={'n_repeats': 100, 'n_jobs': 5, 'scoring': 'balanced_accuracy'}, sort_cols=True):
 
         result = permutation_importance(clf, X, y, **pi_kwargs)
         sorted_importances_idx = np.arange(X.columns.size)
@@ -627,8 +711,8 @@ class TEVAHandler:
     def run_teva_model(self, data, classes, output_dir, out_suffix=''):
 
         # output spreadsheets
-        cc_name = output_dir + 'ccs_all' + out_suffix + '.xlsx'
-        dnf_name = output_dir + 'dnfs_all' + out_suffix + '.xlsx'
+        cc_name = output_dir + 'ccs_' + out_suffix + '.xlsx'
+        dnf_name = output_dir + 'dnfs_' + out_suffix + '.xlsx'
 
         # list of input featuers
         input_features_list = data.iloc[:, 7:].columns.tolist()  # data.iloc[:, 7:].columns.tolist()
