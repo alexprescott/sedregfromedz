@@ -366,9 +366,10 @@ class ReachData:
         print(f"KS test p-value for DEM {edz_features[2]}: {ks_wdbf}")
 
 
-        def field_dem_comparison_plot(df, x, y, hue, ax, colors, legend=False, pval=None, letter=None):
-            sns.boxplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, fliersize=0, width=0.5)
-            sns.stripplot(df, x=x, y=y, size=2, color='k', alpha=0.5, ax=ax)
+        def field_dem_comparison_plot(df, x, y, hue, ax, colors, legend=False, pval=None, letter=None, log_scale=False,):
+            #sns.boxplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, fliersize=0, width=0.5)
+            sns.violinplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, log_scale=log_scale, split=True,) # fliersize=0, width=0.5)
+            #sns.stripplot(df.apply(np.log10), x=x, y=y, size=2, color='k', alpha=0.5, ax=ax)
             if pval is not None:
                 ax.text(0.975,0.05,f'p={pval:0.2g}', transform=ax.transAxes, ha='right', fontsize=7)
             if letter is not None:
@@ -383,8 +384,8 @@ class ReachData:
         edzk = edz_features[0]
         iax = 0
         ax = axs[iax]  # axs[0,1]
-        field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='a')
-        ax.set_xscale('log')
+        field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='a', log_scale=True)
+        #ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('DEM', fontsize=10)
@@ -402,8 +403,8 @@ class ReachData:
         edzk = edz_features[2]
         iax+=1
         ax = axs[iax]  # axs[2,1]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='c')
-        ax.set_xscale('log')
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='c', log_scale=True)
+        #ax.set_xscale('log')
         ax.set_xlim([8,300])
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
@@ -412,8 +413,8 @@ class ReachData:
         iax +=1
         ax = axs[iax]  # axs[0,0]
         geok = geo_features[0]
-        field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='d')
-        ax.set_xscale('log')
+        field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='d', log_scale=True)
+        #ax.set_xscale('log')
         ax.set_xlim([0.5,3e2])
         ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('Field', fontsize=10)
@@ -429,8 +430,8 @@ class ReachData:
         iax+=1
         ax = axs[iax]  # axs[2,0]
         geok = geo_features[2]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='f')
-        ax.set_xscale('log')
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='f', log_scale=True)
+        #ax.set_xscale('log')
         ax.set_xlim([8,300])
         ax.set_yticks([])
         ax.set_xlabel(geo_fields_map[geok])
