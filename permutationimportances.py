@@ -3,10 +3,10 @@ from scipy.ndimage import gaussian_filter1d
 from matplotlib.gridspec import GridSpec
 from sklearn.metrics import balanced_accuracy_score
 
-hm_dir = '/root/SRCclusters/results/EDZcode/10Dec2025/'  # 5Nov2025/' # 8Jul2025/'
-geomorph_path = hm_dir + 'network/reach_data.csv'
-edz_path = hm_dir + 'analysis/data.csv'
-reach_avg_dir = hm_dir + 'geometry/'
+in_dir = './data/input/edz_results/'
+geomorph_path = in_dir + 'network/reach_data.csv'
+edz_path = in_dir + 'analysis/data.csv'
+reach_avg_dir = in_dir + 'geometry/'
 out_dir = "./figs/"
 
 

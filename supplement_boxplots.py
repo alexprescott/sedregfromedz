@@ -5,10 +5,11 @@ from matplotlib.gridspec import GridSpec
 
 plt.rcParams.update({'legend.fontsize': 8})
 
-hm_dir = '/root/SRCclusters/results/EDZcode/10Dec2025/'
-geomorph_path = hm_dir + 'network/reach_data.csv'
-edz_path = hm_dir + 'analysis/data.csv'
+in_dir = './data/input/edz_results/'
+geomorph_path = in_dir + 'network/reach_data.csv'
+edz_path = in_dir + 'analysis/data.csv'
 reaches = ReachData(geomorphic_data_path=geomorph_path, edz_data_path=edz_path)
+out_dir = "./figs/"
 
 
 # try putting it all in one figure, 3 rows:
@@ -102,4 +103,4 @@ colors = [reaches.hexcolors_U2021[label1], reaches.hexcolors_U2021[label2]]
 ax = reaches.plot_boxplots_supplement(edz_fields_map, class1, class2, label1, label2, ax5, colors=colors, log_scale=True)
 ax.set_title('(e) TR vs. CST', fontsize=12)
 
-fig.savefig(hm_dir + 'figs/supp_panel_boxplots.tif', dpi=300, bbox_inches='tight')
+fig.savefig(out_dir + 'supp_panel_boxplots.tif', dpi=300, bbox_inches='tight')
