@@ -3,7 +3,7 @@ from sklearn.metrics import balanced_accuracy_score
 
 
 output_table = './data/output/rf_cv_trvscst.csv'
-in_dir = './data/input/edz_results/'
+in_dir = './data/input/'
 geomorph_path = in_dir + 'network/reach_data.csv'
 edz_path = in_dir + 'analysis/data.csv'
 reaches = ReachData(geomorphic_data_path=geomorph_path, edz_data_path=edz_path)

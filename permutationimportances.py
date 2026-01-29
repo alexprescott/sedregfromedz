@@ -3,7 +3,7 @@ from scipy.ndimage import gaussian_filter1d
 from matplotlib.gridspec import GridSpec
 from sklearn.metrics import balanced_accuracy_score
 
-in_dir = './data/input/edz_results/'
+in_dir = './data/input/'
 geomorph_path = in_dir + 'network/reach_data.csv'
 edz_path = in_dir + 'analysis/data.csv'
 reach_avg_dir = in_dir + 'geometry/'
