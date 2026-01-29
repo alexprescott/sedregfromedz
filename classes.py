@@ -250,8 +250,6 @@ class ReachData:
 
         fig.suptitle('Reach-averaged cross sections by sediment regime', fontsize=12)
 
-        plt.show()
-
         return fig
 
     def plot_sankey_diagram(self):
@@ -295,8 +293,6 @@ class ReachData:
         #ax.text(0.8, 0.98, 'Sediment regimes', fontsize=8, transform=ax.transAxes, ha='center')
         ax.text(-0.01, 1.3, '(a)', transform=ax.transAxes, ha='left', va='top', fontsize=8)
         #ax.text(-0.7, 0.5, "Partitions of\ndata used\nin analyses", fontsize=8, va='center')
-
-        plt.show()
 
         return fig
 
@@ -467,8 +463,6 @@ class ReachData:
         #fig.add_artist(mlines.Line2D([0.04, 1], [0.465, 0.465], lw=1, color='lightgrey'))
         fig.add_artist(mlines.Line2D([0.378, 0.378], [0.02, 0.93], lw=1, color='grey'))
         fig.add_artist(mlines.Line2D([0.69, 0.69], [0.02, 0.93], lw=1, color='grey'))
-
-        plt.show()
 
         return fig
     
