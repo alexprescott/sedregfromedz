@@ -1,2 +1,4 @@
 teva_logs/
 __pycache__/
+*.png
+*.tif
