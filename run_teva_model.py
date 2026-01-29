@@ -1,3 +1,5 @@
+### NOTE ### this file is outdated and not used in the TEVA feature-selection process of the GRL papaer
+
 from classes import TEVAHandler
 import pandas as pd
 
