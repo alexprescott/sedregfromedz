@@ -1,3 +1,4 @@
+import colorsys
 import logging
 import matplotlib.colors as mc
 import matplotlib.lines as lines
@@ -13,11 +14,11 @@ import textwrap
 import teva
 from matplotlib.colors import LinearSegmentedColormap
 from sankeyflow import Sankey
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import kstest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_validate, StratifiedKFold
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import balanced_accuracy_score
 
 plt.rcParams.update({'font.size': 8}) 
 
@@ -190,7 +191,7 @@ class ReachData:
 
         # right-most axis
         ax = axs[-1]
-        ax.text(0.25, -0.05, "Vertical disconnectivity", fontsize=8, va="bottom", rotation=90)
+        ax.text(0.25, -0.05, "Floodplain disconnectivity", fontsize=8, va="bottom", rotation=90)
         img = ax.imshow(grad.T, extent=[-0.5, 0.5, -0.1, 0.8], interpolation='nearest', aspect='auto', cmap=cmap_bp)
         arrow = mpatches.FancyArrowPatch((0.0,0.8), (0.0,-0.1), mutation_scale=20, clip_on=False, facecolor='none', edgecolor='none')
         ax.add_patch(arrow)
@@ -307,12 +308,12 @@ class ReachData:
             #'w_edep_scaled': 'Scaled width at the EDZ exit',
             'w_4timesbf_to_w_bf': 'Widths ratio, 4xBF to BF',
             'el_edap_scaled': 'EDZ access stage',
-            'wtod_bf': 'BF width-to-depth ratio',
+            'wtod_bf': 'Bankfull width-to-depth ratio',
         }
         geo_fields_map = {
             'VC': 'Confinement ratio',
             'IR': 'Incision ratio',
-            'WtoD': 'BF width-to-depth ratio'
+            'WtoD': 'Bankfull width-to-depth ratio'
         #    'ER': 'Entrenchment ratio',
         }
         regs_map1 = {
@@ -367,9 +368,23 @@ class ReachData:
 
 
         def field_dem_comparison_plot(df, x, y, hue, ax, colors, legend=False, pval=None, letter=None, log_scale=False,):
-            #sns.boxplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, fliersize=0, width=0.5)
-            sns.violinplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, log_scale=log_scale, split=True,) # fliersize=0, width=0.5)
-            #sns.stripplot(df.apply(np.log10), x=x, y=y, size=2, color='k', alpha=0.5, ax=ax)
+            sns.boxplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, fliersize=0, width=0.5, log_scale=log_scale)
+            sns.stripplot(df, x=x, y=y, size=1.5, color='k', alpha=0.5, ax=ax, log_scale=log_scale)
+
+            #sns.violinplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, log_scale=log_scale, split=True, cut=0, inner='quart', linecolor='k')
+            #sns.histplot(df, x=x, y=y, hue=hue, ax=ax, palette=colors, legend=legend, log_scale=log_scale, bins=20)
+            #sns.histplot(df, x=x, hue=hue, ax=ax, palette=colors, legend=legend, log_scale=log_scale, multiple='layer', bins=20, binrange=binrange)
+            #m1 = df.groupby(y).median(y)[x]
+            #def adjust_lightness(color, amount=0.5):
+            #    try:
+            #        c = mc.cnames[color]
+            #    except:
+            #        c = color
+            #    c = colorsys.rgb_to_hls(*mc.to_rgb(c))
+            #    return colorsys.hls_to_rgb(c[0], max(0, min(1, amount * c[1])), c[2])
+            #ax.axvline(m1.iloc[0], color=adjust_lightness(colors[0], 0.9), ls='dashed')
+            #ax.axvline(m1.iloc[1], color=adjust_lightness(colors[1], 0.9), ls='dashed')
+
             if pval is not None:
                 ax.text(0.975,0.05,f'p={pval:0.2g}', transform=ax.transAxes, ha='right', fontsize=7)
             if letter is not None:
@@ -380,13 +395,16 @@ class ReachData:
 
         fig,axs = plt.subplots(2,3, figsize=(6,2.5), layout='constrained', gridspec_kw={'wspace': 0.01, 'hspace': 0.01}) 
         axs = axs.ravel()
+        lims1 = [0.5,3e2]
+        lims2 = [-0.1,4.5]
+        lims3 = [8,300]
 
         edzk = edz_features[0]
         iax = 0
         ax = axs[iax]  # axs[0,1]
         field_dem_comparison_plot(df.sort_values('group1'), x=edzk, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_edzrw, letter='a', log_scale=True)
         #ax.set_xscale('log')
-        ax.set_xlim([0.5,3e2])
+        ax.set_xlim(lims1)
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('DEM', fontsize=10)
         ax.set_title('Lateral confinement')
@@ -395,17 +413,17 @@ class ReachData:
         iax+=1
         ax = axs[iax]  # axs[1,1]
         field_dem_comparison_plot(df.sort_values('group2'), x=edzk, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_edzas, letter='b')
-        ax.set_xlim([-0.1,4.5])
+        ax.set_xlim(lims2)
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
-        ax.set_title('Vertical (dis)connectivity')
+        ax.set_title('Floodplain (dis)connection')
 
         edzk = edz_features[2]
         iax+=1
         ax = axs[iax]  # axs[2,1]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wdbf, letter='c', log_scale=True)
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=edzk, y='group3', hue='group3', ax=ax, colors=list(reversed(colors3)), pval=ks_wdbf, letter='c', log_scale=True)
         #ax.set_xscale('log')
-        ax.set_xlim([8,300])
+        ax.set_xlim(lims3)
         ax.set_xlabel(edz_fields_map[edzk])
         ax.set_ylabel('')
         ax.set_title('FSTCD vs. UST')
@@ -415,7 +433,7 @@ class ReachData:
         geok = geo_features[0]
         field_dem_comparison_plot(df.sort_values('group1'), x=geok, y='group1', hue='group1', ax=ax, colors=colors1, pval=ks_vc, letter='d', log_scale=True)
         #ax.set_xscale('log')
-        ax.set_xlim([0.5,3e2])
+        ax.set_xlim(lims1)
         ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('Field', fontsize=10)
 
@@ -423,36 +441,38 @@ class ReachData:
         ax = axs[iax]  # axs[1,0]
         geok = geo_features[1]
         field_dem_comparison_plot(df.sort_values('group2'), x=geok, y='group2', hue='group2', ax=ax, colors=colors2, pval=ks_ir, letter='e')
-        ax.set_xlim([-0.1,4.5])
+        ax.set_xlim(lims2)
         ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('')
 
         iax+=1
         ax = axs[iax]  # axs[2,0]
         geok = geo_features[2]
-        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=reversed(colors3), pval=ks_wd, letter='f', log_scale=True)
+        field_dem_comparison_plot(df.sort_values('group3', ascending=False), x=geok, y='group3', hue='group3', ax=ax, colors=list(reversed(colors3)), pval=ks_wd, letter='f', log_scale=True)
         #ax.set_xscale('log')
-        ax.set_xlim([8,300])
+        ax.set_xlim(lims3)
         ax.set_yticks([])
         ax.set_xlabel(geo_fields_map[geok])
         ax.set_ylabel('')
 
         def add_legend(ax, colors, porder):
             lhandles = [mpatches.Patch(color=colors[i], label=porder[i]) for i in range(2)]
-            ax.legend(handles=lhandles, loc="upper right", ncol=1, framealpha=0.8, bbox_to_anchor=(1,1), borderpad=0.2, alignment='right', markerfirst=False, prop={'family': 'monospace', 'size': 7})
+            ax.legend(handles=lhandles, loc="upper right", ncol=1, framealpha=0.8, bbox_to_anchor=(1,1), borderpad=0.2, alignment='right', markerfirst=False, fontsize=7)
 
 
         for ax,colors,porder in zip(axs[3:], [colors1, colors2, list(reversed(colors3))], [porder1, porder2, list(reversed(porder3))]):
             add_legend(ax, colors, porder)
 
         fig.supylabel('Data source', fontsize=10)
-        fig.add_artist(mlines.Line2D([0.04, 1], [0.465, 0.465], lw=1, color='lightgrey'))
+        #fig.add_artist(mlines.Line2D([0.04, 1], [0.465, 0.465], lw=1, color='lightgrey'))
+        fig.add_artist(mlines.Line2D([0.378, 0.378], [0.02, 0.93], lw=1, color='grey'))
+        fig.add_artist(mlines.Line2D([0.69, 0.69], [0.02, 0.93], lw=1, color='grey'))
 
         plt.show()
 
         return fig
     
-    def plot_boxplots_supplement(self, edz_features_dict, class1, class2, label1, label2, ax, colors=None):
+    def plot_boxplots_supplement(self, edz_features_dict, class1, class2, label1, label2, ax, colors=None, log_scale=False):
         edz_features = list(edz_features_dict.keys())
         chosen_regs = class1 + class2
         mask = self.src_edz_data['Ph2SedReg'].isin(chosen_regs)
@@ -460,7 +480,8 @@ class ReachData:
         y = self.src_edz_data.Ph2SedReg.loc[mask].isin(class1)
         X['Classes'] = y.map({True: label1, False: label2})
         a = pd.melt(X, id_vars='Classes').sort_values('Classes', key=lambda s: s.apply([label1, label2].index), ignore_index=True)
-        sns.boxplot(a, x='variable', y='value', hue='Classes', ax=ax, palette=colors)
+        #sns.boxplot(a, x='variable', y='value', hue='Classes', ax=ax, palette=colors)
+        sns.violinplot(a, x='variable', y='value', hue='Classes', ax=ax, palette=colors, log_scale=log_scale, split=True, cut=0, inner='quart', density_norm='width', linecolor='k')
         ax.get_legend().set_title('')
         labels = []
         for label in ax.get_xticklabels():
@@ -473,6 +494,121 @@ class ReachData:
 
         return ax
 
+    def plot_edz_feature_descriptions(self, reach_id=str(14)):
+        reach = self.src_edz_data.loc[reach_id]
+        length = reach['length']
+        el = self.el_scaled_data[reach_id].to_numpy()
+        rh = self.rh_data[reach_id].to_numpy()
+        rh_prime = self.rh_prime_data[reach_id].to_numpy()
+        rh_prime = gaussian_filter1d(rh_prime.T, 15).T
+        width = self.area_data[str(reach_id)].to_numpy() / length
+        width = width / 2
+        width = np.append(-width[::-1], width)
+        section_el = np.append(el[::-1], el)
+
+        el_edap = reach['el_edap_scaled']
+        el_edep = reach['el_edep_scaled']
+
+        fig,axs = plt.subplots(3,1, figsize=(6., 8.), layout='constrained')
+
+        ax = axs[0]
+        ax.plot(width, section_el, c='k', lw=3, zorder=10000)
+        ax.fill_between([width.min(), width.max()], el_edap, el_edep, fc='lightblue', alpha=0.9)
+        ax.set_xlim([width.min(), width.max()])
+        ax.set_xlabel('Centered width [m]', fontsize=10)
+
+        w4x_1 = np.argmin(np.abs(2*np.abs(width[:width.size//2]) - reach['w_4timesbf']))
+        w4x_2 = width.size - w4x_1
+        ax.plot([width[w4x_1], width[w4x_2]], [4., 4.,], c='darkorange', lw=2)
+        ax.text(-50, 4.1, 'Width at 4x bankfull', c='darkorange', fontsize=10)
+        max_exp = np.argmin(rh_prime)
+        max_exp_el = el[max_exp]
+        wmaxexp_1 = width[width.size//2 - max_exp]
+        wmaxexp_2 = width[width.size - (width.size//2 - max_exp)]
+        ax.plot([wmaxexp_1, wmaxexp_2], [max_exp_el, max_exp_el], c='darkorange', lw=2)
+        ax.text(-50, max_exp_el+0.1, 'Width at max. lateral expansion', c='darkorange', fontsize=10)
+        w_bf = reach['w_bf'] / 2
+        ax.plot([-w_bf, w_bf], [1, 1], c='darkorange', lw=2)
+        ax.text(0, 1.0, 'Bankfull\nwidth', c='darkorange', fontsize=10, ha='center', va='center')
+
+
+
+
+        ax = axs[1]
+        ax.plot(rh, el, c='k', lw=3, zorder=10000)
+        ax.fill_between([rh.min(), rh.max()], el_edap, el_edep, fc='lightblue', alpha=0.9)
+        ax.set_xlim([rh.min(), rh.max()])
+        ax.set_xlabel(r'R$_h$ [m]', fontsize=10)
+
+        ax.plot(rh[max_exp], max_exp_el, marker='o', c='purple', zorder=10001)
+        rh_edap = np.argmin(np.abs(el - el_edap))
+        rh_edep = np.argmin(np.abs(el - el_edep))
+        rh_mean = np.mean(rh)
+        rh_pre_mean = np.mean(rh[:rh_edap])
+        rh_post_mean = np.mean(rh[rh_edep:])
+        ax.plot(rh[rh_edap], el[rh_edap], marker='o', c='purple', zorder=10001)
+        ax.plot([rh_pre_mean, rh_pre_mean], [0, el[rh_edap]], c='g', ls='dashed', lw=2)
+        ax.plot(rh[rh_edep], el[rh_edep], marker='o', c='purple', zorder=10001)
+        ax.plot([rh_post_mean, rh_post_mean], [el[rh_edep], 6], c='g', ls='dashed', lw=2)
+        ax.plot([rh_mean, rh_mean], [0, 6], c='g', ls='dashed', lw=2)
+        ax.text(rh_pre_mean, el_edap, r'Mean R$_h$'+f'\nbelow EDZ', rotation=90, ha='center', va='bottom', c='g', fontsize=10)
+        ax.text(rh_mean, (el_edap + el_edep) / 2, r'Mean R$_h$', rotation=90, ha='right', va='center', c='g', fontsize=10)
+        ax.text(rh_post_mean, el_edep, r'Mean R$_h$'+f'\nabove EDZ', rotation=90, ha='center', va='top', c='g', fontsize=10)
+        ax.text(rh[rh_edap], el_edap, r'R$_h$ at EDZ'+f'\naccess', rotation=90, ha='center', va='bottom', c='purple', fontsize=10)
+        ax.text(rh[max_exp], 0.6, r'R$_h$ at max'+f'\nlateral expansion', rotation=90, ha='center', va='center', c='purple', fontsize=10)
+        ax.text(rh[rh_edep], el_edep+0.2, r'R$_h$ at'+f'\nEDZ exit', rotation=90, ha='right', va='bottom', c='purple', fontsize=10)
+
+
+
+        ax = axs[2]
+        ax.plot(rh_prime, el, c='k', lw=3, zorder=10000)
+        ax.fill_between([-1,1], el_edap, el_edep, fc='lightblue', alpha=0.9)
+        start = np.argmin(np.abs(el - el_edap))
+        stop = np.argmin(np.abs(el - el_edep))
+        ax.fill_betweenx(el[start:stop], 0.5, rh_prime[start:stop])
+        ax.vlines(0.5, el[start], el[stop], ls='solid', color='k', alpha=0.7)
+        ax.set_xlim([-1, 1])
+        ax.set_xticks([-1.0, -0.5, -0., 0.5, 1.])
+        ax.set_xlabel(r"R$_{h}$' [m m$^{-1}$]", fontsize=10)
+
+        rh_prime_max_exp = rh_prime[max_exp]
+        rh_prime_mean = np.mean(rh_prime)
+        rh_prime_std = np.std(rh_prime)
+        #rh_prime_pre_mean = np.mean(rh_prime[:rh_edap])
+        #rh_prime_post_mean = np.mean(rh_prime[rh_edep:])
+
+        ax.plot(rh_prime_max_exp, max_exp_el, c='b', marker='o', zorder=10002)
+        ax.plot([rh_prime_max_exp, 0.5], [max_exp_el, el_edep], c='r', ls=(0, (1, 1)), lw=2, zorder=10001)
+        ax.plot([rh_prime_max_exp, 0.5], [max_exp_el, el_edap], c='r', ls=(0, (1, 1)), lw=2, zorder=10001)
+        ax.axvline(rh_prime_mean, ls='dashed', c='green', lw=2)
+        ax.annotate('', [rh_prime_mean-rh_prime_std, 4.75], [rh_prime_mean+rh_prime_std, 4.75], arrowprops=dict(arrowstyle='<|-|>', color='darkslategrey', ls='dashed', lw=2))
+        #ax.plot([rh_prime_pre_mean, rh_prime_pre_mean], [0, el_edap], ls='dashed', c='green', lw=2)
+        #ax.plot([rh_prime_post_mean, rh_prime_post_mean], [el_edep, 6], ls='dashed', c='green', lw=2)
+        ax.plot([-1.02, -0.98], [el_edap, el_edap], c='b', lw=2, clip_on=False)
+        ax.plot([-1.02, -0.98], [max_exp_el, max_exp_el], c='purple', lw=2, clip_on=False)
+        ax.plot([-1.02, -0.98], [el_edep, el_edep], c='b', lw=2, clip_on=False)
+
+        #ax.text(rh_prime_pre_mean-0.03, el_edap, r"Mean R$_h$'"+f'\nbelow EDZ', rotation=90, ha='left', va='bottom', c='g', fontsize=10)
+        ax.text(rh_prime_mean+0.02, 2.25, r"Mean R$_h$'", rotation=90, ha='left', va='center', c='g', fontsize=10)
+        #ax.text(rh_prime_post_mean-0.02, el_edep+0.4, r"Mean R$_h$'"+f'\nabove EDZ', rotation=90, ha='left', va='top', c='g', fontsize=10)
+        ax.text(-0.97, el_edap, 'EDZ access stage', c='b', ha='left', va='center', fontsize=10)
+        ax.text(-0.97, max_exp_el, 'Scaled stage of max.\nlateral expansion', c='purple', ha='left', va='center', fontsize=10)
+        ax.text(-0.97, el_edep, 'EDZ exit stage', c='b', ha='left', va='center', fontsize=10)
+        ax.text((0.5+rh_prime_max_exp)/2, el_edap+0.3, r"R$_h$' slope below"+f'\nmax. lat. exp.', c='r', ha='center', va='top', fontsize=10)
+        ax.text((0.5+rh_prime_max_exp)/2, el_edep-0.2, r"R$_h$' slope above"+f'\nmax. lat. exp.', c='r', ha='center', va='bottom', fontsize=10)
+        ax.text(rh_prime_max_exp-0.01, max_exp_el, 'Max. lateral\nexpansion', c='b', ha='right', va='center', fontsize=10)
+        ax.text(rh_prime_mean-0.02, 4.8, r"$\pm$std. dev."+"\nof Rh'", c='darkslategrey', ha='right', va='center', fontsize=10)
+        ax.text(0.5, (el_edap+el_edep)/2, 'Diagnostic size', c='b', ha='right', va='center', fontsize=10)
+
+        letters = ['a', 'b', 'c']
+        for ax,l in zip(axs,letters):
+            ax.set_ylim([0,6])
+            ax.set_ylabel('Scaled stage', fontsize=10)
+            ax.text(0.02, 0.9, f'({l})', transform=ax.transAxes, fontsize=10)
+        
+        #fig.suptitle("DEM-derived features", fontsize=16)
+        
+        return fig
 
     def repeat_cv_compare(self, class1, class2, cols_teva, save_fpath, n_iter=10, rng=None, prints=True):
 
