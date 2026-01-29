@@ -3,15 +3,15 @@ import logging
 import pandas as pd
 
 # Data
-wrk_dir = '/root/repositories/sedregfromedz/data/teva/'
+in_dir = './data/output/teva/'
 suffix = '_edzsonly'
-data = pd.read_csv(wrk_dir+'Dataset_lat_conf_TEVA' + suffix + '.csv')  # vertical confinement has all of the input data, too; just need to select the different classifications
+data = pd.read_csv(in_dir+'Dataset_lat_conf_TEVA' + suffix + '.csv')  # vertical confinement has all of the input data, too; just need to select the different classifications
 data.pop('lat_conf') # still pop this column off the dataframe
 classifications = data.pop('Ph2SedReg')
 sheets = ['CCEA_' + str(x) for x in classifications.unique()]
 
 # output directory
-out_dir = "/root/repositories/sedregfromedz/data/teva/cc_loops/"
+out_dir = in_dir + "cc_loops/"
 
 n_loops = 20
 
