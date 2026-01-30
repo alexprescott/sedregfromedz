@@ -3,3 +3,4 @@ __pycache__/
 workbook/
 *.png
 *.tif
+*.zip
